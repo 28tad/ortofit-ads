@@ -1,0 +1,33 @@
+# Секреты
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# Зависимости
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Сборка
+dist/
+build/
+.next/
+out/
+
+# Логи
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# ОС и редакторы
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
