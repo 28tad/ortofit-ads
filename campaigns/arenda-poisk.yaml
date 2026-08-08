@@ -53,7 +53,7 @@ groups:
       - title: "Аренда Артромот — доставим сегодня"
         title2: "От 500 ₽ в сутки"
         text: "Аппараты для разработки суставов. Привезём и настроим в день обращения."
-        href: "https://orto-fit.ru/arenda"
+        href: "https://orto-fit.ru/arenda-trenazherov"
 
   - name: "Аппарат общее"
     keywords:
@@ -65,7 +65,7 @@ groups:
       - title: "Аппарат для разработки колена — аренда"
         title2: "Доставка по РФ"
         text: "Работаем с 2018. Подберём модель под ваш сустав. Настройка при доставке."
-        href: "https://orto-fit.ru/arenda"
+        href: "https://orto-fit.ru/arenda-trenazherov"
 
   - name: "Разработка колена"
     keywords:
@@ -76,4 +76,4 @@ groups:
       - title: "Разработка колена дома — аренда"
         title2: "От 500 ₽ в сутки"
         text: "Не можете ехать в клинику? Привезём аппарат домой. Звоните."
-        href: "https://orto-fit.ru/arenda"
+        href: "https://orto-fit.ru/arenda-trenazherov"
