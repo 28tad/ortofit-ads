@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from .api import ApiError, DirectApi, from_micros, to_micros
+from .api import ApiError, DirectApi, to_micros
 from .direct import DirectError
 
 # Лимиты Директа на тексты объявлений. У Title2 и Text «узкие» символы !,.;:"
@@ -30,6 +30,52 @@ MAX_TITLE_WORD = 22
 
 MAX_KEYWORD_WORDS = 7
 MAX_KEYWORD_WORD = 35
+
+# Требования Яндекса к рекламе медицинских изделий:
+# https://yandex.ru/support/direct/ru/moderation/categories/medicine-medical-devices
+# Кампания №713404098 уже была отклонена по этой тематике, поэтому тексты
+# проверяются до отправки. Список literal: ищем ровно эти обороты, без попыток
+# угадать словоформы — стем «лучш» ловил бы безобидное «улучшение».
+MEDICAL_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "создаёт впечатление, что обращение к врачу не требуется",
+        (
+            "не можете ехать в клинику",
+            "без визита к врачу",
+            "без врача",
+            "не нужно в больницу",
+            "замена клинике",
+        ),
+    ),
+    (
+        "сравнение с другими изделиями или заявление о превосходстве",
+        (
+            "золотой стандарт",
+            "лучший",
+            "эффективнее",
+            "быстрее чем",
+            "дешевле чем",
+        ),
+    ),
+    (
+        "гарантия эффективности, безопасности или отсутствия побочных действий",
+        (
+            "гарантируем",
+            "без побочных",
+            "безопасно для всех",
+            "излечение",
+            "вылечит",
+        ),
+    ),
+    (
+        "звучит как медицинская рекомендация",
+        (
+            "под ваш диагноз",
+            "назначим",
+            "подберём лечение",
+        ),
+    ),
+)
 
 BANNER = "РЕЖИМ ПРЕДВАРИТЕЛЬНОГО ПРОСМОТРА — изменения не применяются"
 
@@ -96,7 +142,7 @@ def validate(spec: dict) -> list[str]:
     if not isinstance(campaign, dict):
         return ["Нет секции campaign"]
 
-    for key in ("name", "daily_budget", "avg_cpc_limit"):
+    for key in ("name", "weekly_budget"):
         if campaign.get(key) in (None, ""):
             errors.append(f"campaign: не заполнено поле {key}")
     if not campaign.get("regions"):
@@ -109,6 +155,13 @@ def validate(spec: dict) -> list[str]:
 
     for index, group in enumerate(groups, start=1):
         name = (group or {}).get("name") or f"<без имени, №{index}>"
+
+        # В Единой перфоманс-кампании ставка и минус-фразы живут на группе,
+        # общих настроек на кампанию для них нет.
+        if (group or {}).get("max_cpc") in (None, ""):
+            errors.append(f"группа «{name}»: не указана max_cpc")
+        if not (group or {}).get("negative_keywords"):
+            errors.append(f"группа «{name}»: не заданы negative_keywords")
 
         for keyword in (group or {}).get("keywords") or []:
             _check_keyword(errors, name, str(keyword))
@@ -134,6 +187,47 @@ def validate(spec: dict) -> list[str]:
                 errors.append(f"группа «{name}»: у объявления не указан href")
 
     return errors
+
+
+def _normalize(text: str) -> str:
+    """Регистр и ё к общему виду: «Подберём» и «подберем» — одно и то же."""
+    return str(text or "").lower().replace("ё", "е")
+
+
+def review_texts(spec: dict) -> list[str]:
+    """Предупреждения по требованиям к рекламе медицинских изделий.
+
+    Не ошибки: формулировку решает человек, скрипт лишь показывает, за что
+    модерация уже отклоняла кампанию. Выполнение не прерывается.
+    """
+    warnings: list[str] = []
+
+    def check(where: str, value) -> None:
+        text = _normalize(value)
+        if not text:
+            return
+        for reason, phrases in MEDICAL_RULES:
+            for phrase in phrases:
+                if _normalize(phrase) in text:
+                    warnings.append(f'{where}: «{phrase}» — {reason}')
+
+    campaign = spec.get("campaign") or {}
+    for callout in campaign.get("callouts") or []:
+        check("уточнение", callout)
+    for sitelink in campaign.get("sitelinks") or []:
+        check("быстрая ссылка", (sitelink or {}).get("title"))
+
+    for index, group in enumerate(spec.get("groups") or [], start=1):
+        name = (group or {}).get("name") or f"<без имени, №{index}>"
+        for ad in (group or {}).get("ads") or []:
+            for label, field_name in (
+                ("заголовок", "title"),
+                ("второй заголовок", "title2"),
+                ("текст", "text"),
+            ):
+                check(f'группа «{name}», {label}', (ad or {}).get(field_name))
+
+    return warnings
 
 
 def _check_length(errors: list[str], group: str, label: str, value, limit: int) -> None:
@@ -166,21 +260,42 @@ def _check_keyword(errors: list[str], group: str, keyword: str) -> None:
 # --- чтение состояния аккаунта --------------------------------------------
 
 
-def read_state(api: DirectApi, campaign_name: str) -> AccountState:
-    wanted = campaign_name.strip()
-    campaign = next(
-        (c for c in api.get_campaigns() if c.get("Name", "").strip() == wanted), None
-    )
-    if campaign is None:
+# Псевдофраза, которую Директ заводит в группе сам при включённом
+# автотаргетинге. В файле кампании ей делать нечего, иначе она вечно висит
+# в списке «есть в аккаунте, но нет в файле».
+AUTOTARGETING_KEYWORD = "---autotargeting"
+
+
+def read_state(api: DirectApi, campaign: dict) -> AccountState:
+    """Находит кампанию по id, а при его отсутствии — по имени.
+
+    Директ называет кампании сам («Единая перфоманс-кампания №2 от 09-08-2026»),
+    и поиск по имени промахивается, пока её не переименуют вручную. Id надёжнее.
+    """
+    wanted_id = campaign.get("id")
+    wanted_name = str(campaign.get("name", "")).strip()
+
+    found = None
+    for item in api.get_campaigns():
+        if wanted_id is not None:
+            if item.get("Id") == wanted_id:
+                found = item
+                break
+        elif item.get("Name", "").strip() == wanted_name:
+            found = item
+            break
+
+    if found is None:
         return AccountState()
 
-    campaign_id = campaign["Id"]
+    campaign_id = found["Id"]
     groups = api.get_ad_groups([campaign_id])
     name_by_id = {g["Id"]: g["Name"] for g in groups}
 
     keywords = {
         (name_by_id.get(k["AdGroupId"], ""), k["Keyword"].strip().lower())
         for k in api.get_keywords([campaign_id])
+        if k["Keyword"].strip().lower() != AUTOTARGETING_KEYWORD
     }
     ads = {
         (name_by_id.get(a["AdGroupId"], ""), a.get("TextAd", {}).get("Title", "")): a
@@ -189,7 +304,7 @@ def read_state(api: DirectApi, campaign_name: str) -> AccountState:
     }
 
     return AccountState(
-        campaign=campaign,
+        campaign=found,
         groups={g["Name"]: g for g in groups},
         keywords=keywords,
         ads=ads,
@@ -209,14 +324,7 @@ def build_plan(spec: dict, state: AccountState) -> tuple[list[Change], list[str]
     for group in spec["groups"]:
         name = group["name"]
         known = state.groups.get(name)
-        changes.append(
-            Change(
-                UNCHANGED if known else CREATE,
-                "group",
-                name,
-                [] if known else [f"регионы: {_regions(campaign)}"],
-            )
-        )
+        changes.append(_group_change(campaign, group, known))
 
         for keyword in group.get("keywords") or []:
             exists = (name, str(keyword).strip().lower()) in state.keywords
@@ -230,28 +338,67 @@ def build_plan(spec: dict, state: AccountState) -> tuple[list[Change], list[str]
 
 def _campaign_change(campaign: dict, known: dict | None) -> Change:
     lines = [
-        f"дневной бюджет {campaign['daily_budget']} ₽",
-        f"стратегия: {campaign.get('strategy', '—')}, до {campaign['avg_cpc_limit']} ₽ за клик",
-        "показы в сетях отключены (кампания поисковая)",
+        f"тип: {campaign.get('type', '—')}",
+        f"недельный бюджет {campaign['weekly_budget']} ₽",
+        f"стратегия: {campaign.get('strategy', '—')}",
+        f"площадки: {_placements(campaign)}",
         f"регионы: {_regions(campaign)}",
-        f"минус-слов: {len(campaign.get('negative_keywords') or [])}",
+        f"целей с ценностью: {len(campaign.get('goals') or [])}",
     ]
     if known is None:
         return Change(CREATE, "campaign", campaign["name"], lines)
 
+    # Недельный бюджет, площадки, цели и атрибуцию campaigns.get в текущем наборе
+    # полей не отдаёт — сверять нечего, они перечислены выше как желаемое
+    # состояние и проверяются глазами в интерфейсе. Тип тоже не сличаем: API v5
+    # отдаёт Единую перфоманс-кампанию как TEXT_CAMPAIGN, и сравнение с
+    # UNIFIED_PERFORMANCE давало бы вечную ложную разницу.
     diffs = []
-    budget = known.get("DailyBudget") or {}
-    if "Amount" in budget:
-        current = from_micros(budget["Amount"])
-        if to_micros(current) != to_micros(campaign["daily_budget"]):
-            diffs.append(f"дневной бюджет: {current:g} ₽ -> {campaign['daily_budget']} ₽")
-
-    current_negatives = set((known.get("NegativeKeywords") or {}).get("Items") or [])
-    wanted_negatives = set(campaign.get("negative_keywords") or [])
-    if added := wanted_negatives - current_negatives:
-        diffs.append(f"минус-слова: +{len(added)} ({', '.join(sorted(added)[:5])}...)")
+    if (actual := (known.get("Name") or "").strip()) != campaign["name"].strip():
+        diffs.append(f"имя: «{actual}» -> «{campaign['name']}»")
 
     return Change(UPDATE if diffs else UNCHANGED, "campaign", campaign["name"], diffs)
+
+
+def _group_change(campaign: dict, group: dict, known: dict | None) -> Change:
+    name = group["name"]
+    wanted_negatives = set(group.get("negative_keywords") or [])
+
+    if known is None:
+        return Change(
+            CREATE,
+            "group",
+            name,
+            [
+                f"регионы: {_regions(campaign)}",
+                f"ставка до {group.get('max_cpc', '—')} ₽ за клик",
+                f"минус-фраз: {len(wanted_negatives)}",
+            ],
+        )
+
+    diffs = []
+    current_negatives = set((known.get("NegativeKeywords") or {}).get("Items") or [])
+    if added := wanted_negatives - current_negatives:
+        diffs.append(f"минус-фразы: +{len(added)} ({', '.join(sorted(added)[:5])}...)")
+
+    wanted_regions = set(campaign.get("regions") or [])
+    current_regions = set(known.get("RegionIds") or [])
+    if wanted_regions != current_regions:
+        diffs.append(
+            f"регионы: {_join(current_regions)} -> {_join(wanted_regions)}"
+        )
+
+    return Change(UPDATE if diffs else UNCHANGED, "group", name, diffs)
+
+
+def _join(values) -> str:
+    return ", ".join(str(v) for v in sorted(values)) or "—"
+
+
+def _placements(campaign: dict) -> str:
+    placements = campaign.get("placements") or {}
+    enabled = [key for key, value in placements.items() if value]
+    return ", ".join(enabled) if enabled else "—"
 
 
 def _ad_change(group: str, ad: dict, known: dict | None) -> Change:
@@ -353,6 +500,17 @@ def _describe(counts: Counter) -> str:
 
 
 def campaign_payload(campaign: dict) -> dict:
+    # Сборка ниже написана под классическую текстово-графическую кампанию.
+    # У Единой перфоманс-кампании другая структура — недельный бюджет, ставки на
+    # группах, набор площадок, — и собрать её этим кодом нельзя. Падаем громко,
+    # чтобы --apply не создал вместо неё что-то другое.
+    if campaign.get("type") != "TEXT_CAMPAIGN":
+        raise DirectError(
+            f"campaign.type = {campaign.get('type')}: создание кампаний этого типа "
+            "не реализовано, payload собирается только для TEXT_CAMPAIGN. "
+            "Такую кампанию заводят вручную, а скрипт сверяет её содержимое."
+        )
+
     return {
         "Name": campaign["name"],
         "NegativeKeywords": {"Items": list(campaign.get("negative_keywords") or [])},
@@ -414,7 +572,13 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
     if new_groups:
         created = api.add_ad_groups(
             [
-                {"Name": g["name"], "CampaignId": campaign_id, "RegionIds": regions}
+                {
+                    "Name": g["name"],
+                    "CampaignId": campaign_id,
+                    "RegionIds": regions,
+                    # Минус-фразы в ЕПК задаются на группе, а не на кампании.
+                    "NegativeKeywords": {"Items": list(g.get("negative_keywords") or [])},
+                }
                 for g in new_groups
             ]
         )
@@ -481,9 +645,22 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nВсего ошибок: {len(errors)}. План не строился.", file=sys.stderr)
         return 1
 
+    # Требования к рекламе медизделий — предупреждения, а не ошибки:
+    # формулировку выбирает человек, скрипт лишь называет спорные обороты.
+    if warnings := review_texts(spec):
+        print("ТРЕБОВАНИЯ К РЕКЛАМЕ МЕДИЦИНСКИХ ИЗДЕЛИЙ", file=sys.stderr)
+        for warning in warnings:
+            print(f"  {warning}", file=sys.stderr)
+        print(
+            f"\nПредупреждений: {len(warnings)}. Это не ошибки, работа продолжается.\n"
+            "Требования: https://yandex.ru/support/direct/ru/moderation/categories"
+            "/medicine-medical-devices\n",
+            file=sys.stderr,
+        )
+
     try:
         api = DirectApi()
-        state = read_state(api, spec["campaign"]["name"])
+        state = read_state(api, spec["campaign"])
     except (ApiError, DirectError) as error:
         print(f"Не удалось прочитать аккаунт: {error}", file=sys.stderr)
         return 1

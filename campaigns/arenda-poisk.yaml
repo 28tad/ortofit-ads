@@ -1,79 +1,198 @@
+# Кампания заведена в Директе вручную; здесь она описана для версионирования и
+# для будущей записи через API. ID реальных объектов заданы полями id, а не
+# комментариями: по ним скрипт сопоставляет описание с аккаунтом — из коммента
+# он бы их не прочитал.
+#
+# Тексты подчинены требованиям Яндекса к рекламе медицинских изделий:
+# https://yandex.ru/support/direct/ru/moderation/categories/medicine-medical-devices
+# Предупреждение «Есть противопоказания. Посоветуйтесь с врачом» Директ
+# добавляет в текстовые объявления сам — в тексты его вписывать не нужно.
+
+# Общий список минус-фраз. В Единой перфоманс-кампании минус-фразы задаются на
+# уровне группы, общего списка на кампанию нет — поэтому один и тот же набор
+# подставляется в каждую группу якорем, а не дублируется трижды.
+negative_keywords: &negatives
+  - упражнения
+  - гимнастика
+  - лфк
+  - зарядка
+  - симптомы
+  - лечение
+  - болит
+  - отек
+  - мазь
+  - уколы
+  - таблетки
+  - омс
+  - квота
+  - бесплатно
+  - инвалидность
+  - больничный
+  - операция
+  - артроскопия
+  - эндопротезирование
+  - хирург
+  - клиника
+  - больница
+  - санаторий
+  - отзывы
+  - форум
+  - stoller
+  - мрт
+  - протез
+  - имплант
+  - наколенник
+  - ортез
+  - костыли
+  - диета
+  - наркоз
+
 campaign:
+  # Сопоставление с аккаунтом идёт по id, а не по имени: Директ назвал кампанию
+  # сам — «Единая перфоманс-кампания №2 от 09-08-2026», — и по имени скрипт её
+  # не находил. Имя ниже желаемое; переименовать в интерфейсе.
+  id: 713404098
   name: "Аренда Артромот — Поиск"
-  type: TEXT_CAMPAIGN
-  daily_budget: 1000
-  strategy: "максимум кликов с ограничением средней цены клика"
-  avg_cpc_limit: 60
-  regions: [225]   # Россия
-  negative_keywords:
-    - упражнения
-    - гимнастика
-    - лфк
-    - зарядка
-    - симптомы
-    - лечение
-    - болит
-    - отек
-    - мазь
-    - уколы
-    - таблетки
-    - омс
-    - квота
-    - бесплатно
-    - инвалидность
-    - больничный
-    - операция
-    - артроскопия
-    - эндопротезирование
-    - хирург
-    - клиника
-    - больница
-    - санаторий
-    - отзывы
-    - форум
-    - stoller
-    - мрт
-    - протез
-    - имплант
-    - наколенник
-    - ортез
-    - костыли
-    - диета
-    - наркоз
+  # Классические текстово-графические кампании в этом аккаунте недоступны,
+  # поэтому кампания заведена как Единая перфоманс-кампания.
+  type: UNIFIED_PERFORMANCE
+
+  # Оставлен только поиск: всё остальное в ЕПК включено по умолчанию и даёт
+  # нецелевой трафик на медицинскую тематику.
+  placements:
+    search: true
+    product_gallery: false
+    dynamic_places: false
+    organizations_list: false
+    ad_network: false
+    maps: false
+
+  strategy: "максимум кликов с ручными ставками"
+  weekly_budget: 3500
+
+  regions: [213, 2]   # 213 — Москва, 2 — Санкт-Петербург
+
+  calltracking: true
+  attribution: "последний значимый переход кросс-девайс"
+  metrika_counter: 103118341
+
+  goals:
+    - id: 594657447
+      name: "Просмотр страницы аренды"
+      value: 30
+    - id: 594657549
+      name: "Просмотр карточки аппарата"
+      value: 100
+    - id: 490492726
+      name: "Клик по номеру телефона"
+      value: 3000
+    - id: 456684631
+      name: "Отправил контактные данные"
+      value: 3000
+
+  utm: "utm_source=yandex&utm_medium=cpc&utm_campaign=arenda-poisk&utm_content={ad_id}&utm_term={keyword}"
+
+  sitelinks:
+    - title: "ARTROMOT K1 — колено"
+      href: "https://orto-fit.ru/arenda-trenazherov/artromot-k1"
+    - title: "Аппараты для плеча"
+      href: "https://orto-fit.ru/arenda-trenazherov/ortorent-plecho"
+    - title: "Голеностоп и стопа"
+      href: "https://orto-fit.ru/arenda-trenazherov/ortorent-golenostop"
+    - title: "Все аппараты в аренду"
+      href: "https://orto-fit.ru/arenda-trenazherov"
+
+  callouts:
+    - "Работаем с 2018 года"
+    - "Настройка при доставке"
+    - "Доставка по Москве и СПб"
 
 groups:
   - name: "Бренд"
+    id: 5782883408
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true        # целевые
+      narrow_queries: true        # узкие
+      own_brand_queries: true     # с упоминанием своего бренда
+      broad_queries: false        # широкие
+      accessory_queries: false    # сопутствующие
+      alternative_queries: false  # альтернативные
+      competitor_brand_queries: false
+      no_brand_queries: false
     keywords:
-      - артромот аренда
-      - artromot аренда
+      - артромот аренда -взять
+      - artromot аренда -k1
       - артромот напрокат
       - аренда artromot k1
       - артромот взять в аренду
     ads:
-      - title: "Аренда Артромот — доставим сегодня"
+      # Заголовок и текст — как в Директе; в объявлении не хватает только
+      # второго заголовка, его там сейчас нет ни у одного объявления.
+      - title: "Аренда ARTROMOT K1 — доставим сегодня"
         title2: "От 500 ₽ в сутки"
-        text: "Аппараты для разработки суставов. Привезём и настроим в день обращения."
-        href: "https://orto-fit.ru/arenda-trenazherov"
+        text: "Аппарат для разработки колена. Привезём, настроим, покажем как заниматься."
+        href: "https://orto-fit.ru/arenda-trenazherov/artromot-k1"
+        price:
+          value: 500
+          prefix: "от"
+          currency: RUB
 
   - name: "Аппарат общее"
+    id: 5782891825
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true
+      narrow_queries: true
+      own_brand_queries: true
+      broad_queries: false
+      accessory_queries: false
+      alternative_queries: false
+      competitor_brand_queries: false
+      no_brand_queries: false
     keywords:
       - аренда аппарата для разработки коленного сустава
       - взять аппарат для разработки колена
       - прокат аппарата механотерапии
-      - аппарат для разработки сустава аренда
+      - аппарат для разработки сустава аренда -коленный
     ads:
-      - title: "Аппарат для разработки колена — аренда"
-        title2: "Доставка по РФ"
-        text: "Работаем с 2018. Подберём модель под ваш сустав. Настройка при доставке."
+      # «Подберём под ваш диагноз» читалось как медицинская рекомендация.
+      - title: "Аппарат для разработки суставов — аренда"
+        title2: "Москва и Санкт-Петербург"
+        text: "16 аппаратов: колено, плечо, локоть, кисть. Поможем с выбором модели."
         href: "https://orto-fit.ru/arenda-trenazherov"
+        price:
+          value: 500
+          prefix: "от"
+          currency: RUB
 
   - name: "Разработка колена"
+    id: 5782895424
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true
+      narrow_queries: true
+      own_brand_queries: true
+      broad_queries: false
+      accessory_queries: false
+      alternative_queries: false
+      competitor_brand_queries: false
+      no_brand_queries: false
     keywords:
       - аппарат для разработки колена аренда
       - тренажер для разгибания колена аренда
       - аппарат для сгибания колена в аренду
     ads:
-      - title: "Разработка колена дома — аренда"
+      # «Не можете ехать в клинику?» создавало впечатление, что обращение
+      # к врачу не требуется.
+      - title: "Разработка колена дома — аренда аппарата"
         title2: "От 500 ₽ в сутки"
-        text: "Не можете ехать в клинику? Привезём аппарат домой. Звоните."
-        href: "https://orto-fit.ru/arenda-trenazherov"
+        text: "Восстановление дома по назначению врача. Привезём и настроим аппарат."
+        href: "https://orto-fit.ru/arenda-trenazherov/artromot-k1"
+        price:
+          value: 500
+          prefix: "от"
+          currency: RUB
