@@ -196,3 +196,96 @@ groups:
           value: 500
           prefix: "от"
           currency: RUB
+
+  # Группы под суставы, кроме колена. Заведены после того, как автотаргетинг
+  # 12 августа привёл запросы «артромот для плечевого сустава аренда» и
+  # «аппарат локтевой для растяжки орторент аренда»: спрос есть, а посадочные
+  # страницы под него в кампании не было — человек попадал на объявление
+  # про колено.
+  #
+  # Цены сверены по карточкам: минимальная суточная ставка при долгой аренде.
+  # У плеча и локтя это 600 ₽, у голеностопа 500 ₽ — не 500 ₽ везде.
+  - name: "Плечо"
+    # id появится после первого --apply или заведения группы в интерфейсе
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true
+      narrow_queries: true
+      own_brand_queries: true
+      broad_queries: false
+      accessory_queries: false
+      alternative_queries: false
+      competitor_brand_queries: false
+      no_brand_queries: false
+    keywords:
+      - артромот для плечевого сустава аренда
+      - артромот s3 аренда
+      - аппарат для разработки плечевого сустава аренда
+      - аппарат для разработки плеча напрокат
+    ads:
+      - title: "Аренда аппарата для разработки плеча"
+        title2: "Доставка и настройка"
+        text: "Механотерапия плечевого сустава дома по назначению врача. Привезём и настроим."
+        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-plecho"
+        price:
+          value: 600
+          prefix: "от"
+          currency: RUB
+
+  - name: "Локоть"
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true
+      narrow_queries: true
+      own_brand_queries: true
+      broad_queries: false
+      accessory_queries: false
+      alternative_queries: false
+      competitor_brand_queries: false
+      no_brand_queries: false
+    keywords:
+      - артромот е2 аренда
+      - artromot e2 аренда
+      - аппарат для разработки локтевого сустава аренда
+      - аппарат для разработки локтя напрокат
+    ads:
+      - title: "Разработка локтевого сустава — аренда"
+        title2: "Доставка и настройка"
+        text: "Восстановление дома по назначению врача. Привезём и настроим аппарат."
+        # Карточки локтя в черновике не было. В каталоге их три:
+        # ortorent-lokot, ortorent-lokot-kompakt и artromot-e2-compact.
+        # Взят обычный «Орторент-локоть» — как у плеча и голеностопа.
+        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-lokot"
+        price:
+          value: 600
+          prefix: "от"
+          currency: RUB
+
+  - name: "Голеностоп"
+    max_cpc: 60
+    negative_keywords: *negatives
+    autotargeting:
+      target_queries: true
+      narrow_queries: true
+      own_brand_queries: true
+      broad_queries: false
+      accessory_queries: false
+      alternative_queries: false
+      competitor_brand_queries: false
+      no_brand_queries: false
+    keywords:
+      - артромот сп3 аренда
+      - artromot sp3 аренда
+      - аппарат для разработки голеностопного сустава аренда
+      - артромот для голеностопа прокат
+    ads:
+      - title: "Аппарат для разработки голеностопа"
+        title2: "Аренда с доставкой"
+        text: "Восстановление дома по назначению врача. Привезём и настроим аппарат."
+        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-golenostop"
+        price:
+          value: 500
+          prefix: "от"
+          currency: RUB
