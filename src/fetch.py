@@ -24,6 +24,10 @@ REPORTS = (
         "fields": [
             "Date",
             "CampaignName",
+            "AdGroupName",
+            # KEYWORD или AUTOTARGETING — видно, что принёс клик: фраза
+            # из YAML или автотаргетинг, который Директ подобрал сам.
+            "CriterionType",
             "AdNetworkType",
             # Регион фактического нахождения пользователя, а не региона таргетинга.
             # Документация числит это поле недоступным в CUSTOM_REPORT — это не так,
