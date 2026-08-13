@@ -200,6 +200,15 @@ class DirectApi:
         result = self.call("ads", "update", {"Ads": ads})
         return _all_ids(result, "UpdateResults", "объявлений")
 
+    def moderate_ads(self, ad_ids: list[int]) -> list[int]:
+        """Отправляет черновики на модерацию. Принимает только статус DRAFT.
+
+        Созданные через API объявления остаются черновиками и сами на модерацию
+        не уходят — без этого вызова группа не даёт показов.
+        """
+        result = self.call("ads", "moderate", {"SelectionCriteria": {"Ids": ad_ids}})
+        return _all_ids(result, "ModerateResults", "объявлений")
+
 
 def _all_ids(result: dict, key: str, what: str) -> list[int]:
     """Достаёт Id из ответа, собирая ошибки по отдельным объектам."""
