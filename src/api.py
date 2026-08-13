@@ -196,6 +196,10 @@ class DirectApi:
         result = self.call("campaigns", "update", {"Campaigns": [campaign]})
         return _single_id(result, "UpdateResults", "кампании")
 
+    def update_ads(self, ads: list[dict]) -> list[int]:
+        result = self.call("ads", "update", {"Ads": ads})
+        return _all_ids(result, "UpdateResults", "объявлений")
+
 
 def _all_ids(result: dict, key: str, what: str) -> list[int]:
     """Достаёт Id из ответа, собирая ошибки по отдельным объектам."""

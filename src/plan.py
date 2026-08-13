@@ -24,7 +24,6 @@ from .direct import DirectError
 # в лимит не входят (до 15 штук сверх), поэтому проверка ниже строже реальной —
 # прошедшее её объявление Директ примет гарантированно.
 MAX_TITLE = 56
-MAX_TITLE2 = 30
 MAX_TEXT = 81
 MAX_TITLE_WORD = 22
 
@@ -172,7 +171,6 @@ def validate(spec: dict) -> list[str]:
 
         for ad in ads:
             _check_length(errors, name, "заголовок", ad.get("title", ""), MAX_TITLE)
-            _check_length(errors, name, "второй заголовок", ad.get("title2", ""), MAX_TITLE2)
             _check_length(errors, name, "текст", ad.get("text", ""), MAX_TEXT)
 
             # Отдельный лимит Директа: длинное слово в заголовке роняет
@@ -185,6 +183,18 @@ def validate(spec: dict) -> list[str]:
                     )
             if not ad.get("href"):
                 errors.append(f"группа «{name}»: у объявления не указан href")
+
+            # В Единой перфоманс-кампании второго заголовка нет. Директ примет
+            # запрос, ответит «Параметр не будет применен» и либо выбросит
+            # title2, либо приклеит его к первому заголовку — после чего
+            # заголовок в аккаунте разойдётся с YAML и сличение начнёт
+            # предлагать создать дубль. Лучше поймать это здесь.
+            if ad.get("title2") and campaign.get("type") == "UNIFIED_PERFORMANCE":
+                errors.append(
+                    f"группа «{name}»: указан title2, но в Единой перфоманс-кампании "
+                    f"второго заголовка нет — впишите текст в title, если он умещается "
+                    f"в {MAX_TITLE} символов"
+                )
 
     return errors
 
@@ -404,17 +414,19 @@ def _placements(campaign: dict) -> str:
 def _ad_change(group: str, ad: dict, known: dict | None) -> Change:
     title = ad.get("title", "")
     if known is None:
-        return Change(CREATE, "ad", title, [ad.get("title2", ""), ad.get("text", ""), ad.get("href", "")])
+        return Change(CREATE, "ad", title, [ad.get("text", ""), ad.get("href", "")])
 
     text_ad = known.get("TextAd", {})
+    # Title2 не сличается: в ЕПК такого поля нет, Директ его не сохраняет.
+    # Сравнение давало бы вечную разницу «None -> ...», которую нельзя устранить.
+    # Заголовок тоже не сличается — по нему объявление опознаётся.
     diffs = [
-        f"{label}: «{text_ad.get(api_field, '')}» -> «{ad.get(yaml_field, '')}»"
+        f"{label}: «{text_ad.get(api_field) or ''}» -> «{ad.get(yaml_field) or ''}»"
         for label, api_field, yaml_field in (
-            ("второй заголовок", "Title2", "title2"),
             ("текст", "Text", "text"),
             ("ссылка", "Href", "href"),
         )
-        if text_ad.get(api_field, "") != ad.get(yaml_field, "")
+        if (text_ad.get(api_field) or "") != (ad.get(yaml_field) or "")
     ]
     return Change(UPDATE if diffs else UNCHANGED, "ad", title, diffs)
 
@@ -565,7 +577,14 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
         print(f"  создана кампания {campaign_id}")
     else:
         campaign_id = state.campaign["Id"]
-        print(f"  кампания уже есть: {campaign_id}")
+        # Из всех полей кампании через API правится только имя: бюджет,
+        # стратегия, площадки и цели в ЕПК задаются в интерфейсе, и
+        # campaigns.get их даже не отдаёт — сверять и слать нечего.
+        if (state.campaign.get("Name") or "") != campaign["name"]:
+            api.update_campaign({"Id": campaign_id, "Name": campaign["name"]})
+            print(f"  кампания {campaign_id} переименована -> «{campaign['name']}»")
+        else:
+            print(f"  кампания {campaign_id} без изменений")
 
     group_ids = {name: group["Id"] for name, group in state.groups.items()}
     new_groups = [g for g in spec["groups"] if g["name"] not in group_ids]
@@ -585,20 +604,25 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
         group_ids.update(zip((g["name"] for g in new_groups), created))
         print(f"  создано групп: {len(created)}")
 
-    keywords, ads = [], []
+    keywords, ads, edits = [], [], []
     for group in spec["groups"]:
         group_id = group_ids[group["name"]]
         for keyword in group.get("keywords") or []:
             if (group["name"], str(keyword).strip().lower()) not in state.keywords:
                 keywords.append({"Keyword": str(keyword), "AdGroupId": group_id})
+
         for ad in group.get("ads") or []:
-            if (group["name"], ad.get("title", "")) not in state.ads:
+            known = state.ads.get((group["name"], ad.get("title", "")))
+            if known is None:
                 ads.append(
                     {
                         "AdGroupId": group_id,
                         "TextAd": {
                             "Title": ad["title"],
-                            "Title2": ad.get("title2", ""),
+                            # Title2 не отправляем: в ЕПК поля нет, Директ
+                            # отвечает предупреждением и либо выбрасывает его,
+                            # либо приклеивает к Title — и тогда заголовок
+                            # в аккаунте перестаёт совпадать с YAML.
                             "Text": ad["text"],
                             "Href": ad["href"],
                             # Поле объявлено устаревшим, но остаётся обязательным.
@@ -606,11 +630,26 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
                         },
                     }
                 )
+                continue
+
+            # Правим только то, что действительно разошлось: любое обращение
+            # к ads.update отправляет объявление на повторную модерацию.
+            text_ad = known.get("TextAd", {})
+            patch = {
+                api_field: ad[yaml_field]
+                for api_field, yaml_field in (("Text", "text"), ("Href", "href"))
+                if (text_ad.get(api_field) or "") != (ad.get(yaml_field) or "")
+            }
+            if patch:
+                edits.append({"Id": known["Id"], "TextAd": patch})
 
     if keywords:
         print(f"  создано фраз: {len(api.add_keywords(keywords))}")
     if ads:
         print(f"  создано объявлений: {len(api.add_ads(ads))}")
+    if edits:
+        print(f"  обновлено объявлений: {len(api.update_ads(edits))}")
+        print("    объявления ушли на повторную модерацию")
 
     print("\nГотово.")
     return 0
