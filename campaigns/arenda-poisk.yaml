@@ -70,7 +70,9 @@ campaign:
   strategy: "максимум кликов с ручными ставками"
   weekly_budget: 3500
 
-  regions: [213, 2]   # 213 — Москва, 2 — Санкт-Петербург
+  # Как в аккаунте: оба региона с областями, а не только города.
+  # Область даёт клики и конверсии — Химки, Королёв, Мытищи, Истра, Тверь.
+  regions: [1, 10174]   # 1 — Москва и область, 10174 — СПб и Ленобласть
 
   calltracking: true
   attribution: "последний значимый переход кросс-девайс"
@@ -203,10 +205,15 @@ groups:
   # страницы под него в кампании не было — человек попадал на объявление
   # про колено.
   #
-  # Цены сверены по карточкам: минимальная суточная ставка при долгой аренде.
-  # У плеча и локтя это 600 ₽, у голеностопа 500 ₽ — не 500 ₽ везде.
+  # Объявления ведут на карточки Артромота: фразы называют конкретные модели
+  # (S3, E2, SP3), и посадочная должна показывать именно их, а не аналог
+  # Орторента.
+  #
+  # Цены сверены по этим же карточкам — минимальная суточная ставка при долгой
+  # аренде. У плеча и локтя 600 ₽, у голеностопа 500 ₽. Совпали с ценами
+  # Орторента, так что значения не менялись.
   - name: "Плечо"
-    # id появится после первого --apply или заведения группы в интерфейсе
+    id: 5785929110
     max_cpc: 60
     negative_keywords: *negatives
     autotargeting:
@@ -227,13 +234,14 @@ groups:
       - title: "Аренда аппарата для разработки плеча"
         title2: "Доставка и настройка"
         text: "Механотерапия плечевого сустава дома по назначению врача. Привезём и настроим."
-        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-plecho"
+        href: "https://orto-fit.ru/arenda-trenazherov/artromot-s3"
         price:
           value: 600
           prefix: "от"
           currency: RUB
 
   - name: "Локоть"
+    id: 5785929111
     max_cpc: 60
     negative_keywords: *negatives
     autotargeting:
@@ -254,16 +262,14 @@ groups:
       - title: "Разработка локтевого сустава — аренда"
         title2: "Доставка и настройка"
         text: "Восстановление дома по назначению врача. Привезём и настроим аппарат."
-        # Карточки локтя в черновике не было. В каталоге их три:
-        # ortorent-lokot, ortorent-lokot-kompakt и artromot-e2-compact.
-        # Взят обычный «Орторент-локоть» — как у плеча и голеностопа.
-        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-lokot"
+        href: "https://orto-fit.ru/arenda-trenazherov/artromot-e2-compact"
         price:
           value: 600
           prefix: "от"
           currency: RUB
 
   - name: "Голеностоп"
+    id: 5785929112
     max_cpc: 60
     negative_keywords: *negatives
     autotargeting:
@@ -284,7 +290,7 @@ groups:
       - title: "Аппарат для разработки голеностопа"
         title2: "Аренда с доставкой"
         text: "Восстановление дома по назначению врача. Привезём и настроим аппарат."
-        href: "https://orto-fit.ru/arenda-trenazherov/ortorent-golenostop"
+        href: "https://orto-fit.ru/arenda-trenazherov/artromot-sp3"
         price:
           value: 500
           prefix: "от"
