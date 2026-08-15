@@ -20,12 +20,17 @@ import yaml
 from .api import ApiError, DirectApi, to_micros
 from .direct import DirectError
 
-# Лимиты Директа на тексты объявлений. У Title2 и Text «узкие» символы !,.;:"
+# Лимиты Директа на тексты объявлений. У Text «узкие» символы !,.;:"
 # в лимит не входят (до 15 штук сверх), поэтому проверка ниже строже реальной —
 # прошедшее её объявление Директ примет гарантированно.
 MAX_TITLE = 56
 MAX_TEXT = 81
 MAX_TITLE_WORD = 22
+
+# У объявления ЕПК заголовков и текстов несколько — Директ комбинирует их сам.
+# Потолки из интерфейса: до 7 заголовков и до 3 текстов.
+MAX_TITLES = 7
+MAX_TEXTS = 3
 
 MAX_KEYWORD_WORDS = 7
 MAX_KEYWORD_WORD = 35
@@ -170,31 +175,47 @@ def validate(spec: dict) -> list[str]:
             errors.append(f"группа «{name}»: нет ни одного объявления")
 
         for ad in ads:
-            _check_length(errors, name, "заголовок", ad.get("title", ""), MAX_TITLE)
-            _check_length(errors, name, "текст", ad.get("text", ""), MAX_TEXT)
-
-            # Отдельный лимит Директа: длинное слово в заголовке роняет
-            # объявление, даже когда сам заголовок укладывается в 56 символов.
-            for word in str(ad.get("title", "")).split():
-                if len(word) > MAX_TITLE_WORD:
+            # Одиночные title/title2/text — прежний формат. Объявление ЕПК несёт
+            # массивы (API v501, структура ResponsiveAd), и старые ключи скрипт
+            # молча проигнорировал бы — лучше остановиться и назвать замену.
+            for legacy in ("title", "title2", "text"):
+                if ad.get(legacy):
                     errors.append(
-                        f"группа «{name}»: слово «{word}» в заголовке — "
-                        f"{len(word)} символов при лимите {MAX_TITLE_WORD}"
+                        f"группа «{name}»: поле {legacy} больше не используется — "
+                        f"объявление описывается массивами titles и texts"
                     )
+
+            titles = [str(t) for t in ad.get("titles") or []]
+            texts = [str(t) for t in ad.get("texts") or []]
+
+            if not titles:
+                errors.append(f"группа «{name}»: не заполнен ни один заголовок")
+            elif len(titles) > MAX_TITLES:
+                errors.append(
+                    f"группа «{name}»: {len(titles)} заголовков при лимите {MAX_TITLES}"
+                )
+            if not texts:
+                errors.append(f"группа «{name}»: не заполнен ни один текст")
+            elif len(texts) > MAX_TEXTS:
+                errors.append(
+                    f"группа «{name}»: {len(texts)} текстов при лимите {MAX_TEXTS}"
+                )
+
+            for title in titles:
+                _check_length(errors, name, "заголовок", title, MAX_TITLE)
+                # Отдельный лимит Директа: длинное слово в заголовке роняет
+                # объявление, даже когда сам заголовок укладывается в 56 символов.
+                for word in title.split():
+                    if len(word) > MAX_TITLE_WORD:
+                        errors.append(
+                            f"группа «{name}»: слово «{word}» в заголовке — "
+                            f"{len(word)} символов при лимите {MAX_TITLE_WORD}"
+                        )
+            for text in texts:
+                _check_length(errors, name, "текст", text, MAX_TEXT)
+
             if not ad.get("href"):
                 errors.append(f"группа «{name}»: у объявления не указан href")
-
-            # В Единой перфоманс-кампании второго заголовка нет. Директ примет
-            # запрос, ответит «Параметр не будет применен» и либо выбросит
-            # title2, либо приклеит его к первому заголовку — после чего
-            # заголовок в аккаунте разойдётся с YAML и сличение начнёт
-            # предлагать создать дубль. Лучше поймать это здесь.
-            if ad.get("title2") and campaign.get("type") == "UNIFIED_PERFORMANCE":
-                errors.append(
-                    f"группа «{name}»: указан title2, но в Единой перфоманс-кампании "
-                    f"второго заголовка нет — впишите текст в title, если он умещается "
-                    f"в {MAX_TITLE} символов"
-                )
 
     return errors
 
@@ -230,12 +251,10 @@ def review_texts(spec: dict) -> list[str]:
     for index, group in enumerate(spec.get("groups") or [], start=1):
         name = (group or {}).get("name") or f"<без имени, №{index}>"
         for ad in (group or {}).get("ads") or []:
-            for label, field_name in (
-                ("заголовок", "title"),
-                ("второй заголовок", "title2"),
-                ("текст", "text"),
-            ):
-                check(f'группа «{name}», {label}', (ad or {}).get(field_name))
+            for title in (ad or {}).get("titles") or []:
+                check(f'группа «{name}», заголовок', title)
+            for text in (ad or {}).get("texts") or []:
+                check(f'группа «{name}», текст', text)
 
     return warnings
 
@@ -307,11 +326,15 @@ def read_state(api: DirectApi, campaign: dict) -> AccountState:
         for k in api.get_keywords([campaign_id])
         if k["Keyword"].strip().lower() != AUTOTARGETING_KEYWORD
     }
-    ads = {
-        (name_by_id.get(a["AdGroupId"], ""), a.get("TextAd", {}).get("Title", "")): a
-        for a in api.get_ads([campaign_id])
-        if "TextAd" in a
-    }
+    # Объявление опознаётся по первому заголовку: он же показывается чаще всего,
+    # и его изменение — это по сути новое объявление, а не правка старого.
+    ads = {}
+    for a in api.get_ads([campaign_id]):
+        if "ResponsiveAd" not in a:
+            continue
+        titles = _ad_strings(a["ResponsiveAd"], "Titles", "Title")
+        if titles:
+            ads[(name_by_id.get(a["AdGroupId"], ""), titles[0])] = a
 
     return AccountState(
         campaign=found,
@@ -319,6 +342,15 @@ def read_state(api: DirectApi, campaign: dict) -> AccountState:
         keywords=keywords,
         ads=ads,
     )
+
+
+def _ad_strings(responsive_ad: dict, collection: str, key: str) -> list[str]:
+    """Массив заголовков или текстов объявления как список строк.
+
+    На чтении v501 отдаёт элементы объектами {"Title": ..., "Status": ...},
+    а на записи принимает просто строки — здесь общий вид для сравнения.
+    """
+    return [item[key] for item in responsive_ad.get(collection) or [] if key in item]
 
 
 # --- сличение --------------------------------------------------------------
@@ -341,7 +373,8 @@ def build_plan(spec: dict, state: AccountState) -> tuple[list[Change], list[str]
             changes.append(Change(UNCHANGED if exists else CREATE, "keyword", str(keyword)))
 
         for ad in group.get("ads") or []:
-            changes.append(_ad_change(name, ad, state.ads.get((name, ad.get("title", "")))))
+            first_title = str((ad.get("titles") or [""])[0])
+            changes.append(_ad_change(name, ad, state.ads.get((name, first_title))))
 
     return changes, _extras(spec, state)
 
@@ -412,23 +445,34 @@ def _placements(campaign: dict) -> str:
 
 
 def _ad_change(group: str, ad: dict, known: dict | None) -> Change:
-    title = ad.get("title", "")
-    if known is None:
-        return Change(CREATE, "ad", title, [ad.get("text", ""), ad.get("href", "")])
+    titles = [str(t) for t in ad.get("titles") or [""]]
+    texts = [str(t) for t in ad.get("texts") or []]
 
-    text_ad = known.get("TextAd", {})
-    # Title2 не сличается: в ЕПК такого поля нет, Директ его не сохраняет.
-    # Сравнение давало бы вечную разницу «None -> ...», которую нельзя устранить.
-    # Заголовок тоже не сличается — по нему объявление опознаётся.
-    diffs = [
-        f"{label}: «{text_ad.get(api_field) or ''}» -> «{ad.get(yaml_field) or ''}»"
-        for label, api_field, yaml_field in (
-            ("текст", "Text", "text"),
-            ("ссылка", "Href", "href"),
+    if known is None:
+        return Change(CREATE, "ad", titles[0], titles[1:] + texts + [ad.get("href", "")])
+
+    responsive = known.get("ResponsiveAd", {})
+    diffs: list[str] = []
+    # Первый заголовок не сличается — по нему объявление опознаётся.
+    _list_diff(diffs, "заголовки", _ad_strings(responsive, "Titles", "Title"), titles)
+    _list_diff(diffs, "тексты", _ad_strings(responsive, "Texts", "Text"), texts)
+    if (responsive.get("Href") or "") != (ad.get("href") or ""):
+        diffs.append(f"ссылка: «{responsive.get('Href') or ''}» -> «{ad.get('href') or ''}»")
+
+    return Change(UPDATE if diffs else UNCHANGED, "ad", titles[0], diffs)
+
+
+def _list_diff(diffs: list[str], label: str, current: list[str], wanted: list[str]) -> None:
+    if current == wanted:
+        return
+    # Частый случай — в конец дописали новые варианты: показываем только их.
+    if current == wanted[: len(current)]:
+        diffs.append(f"{label}: " + ", ".join(f"+«{item}»" for item in wanted[len(current):]))
+    else:
+        diffs.append(
+            f"{label}: {'; '.join(f'«{i}»' for i in current) or '—'} -> "
+            f"{'; '.join(f'«{i}»' for i in wanted)}"
         )
-        if (text_ad.get(api_field) or "") != (ad.get(yaml_field) or "")
-    ]
-    return Change(UPDATE if diffs else UNCHANGED, "ad", title, diffs)
 
 
 def _extras(spec: dict, state: AccountState) -> list[str]:
@@ -612,21 +656,19 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
                 keywords.append({"Keyword": str(keyword), "AdGroupId": group_id})
 
         for ad in group.get("ads") or []:
-            known = state.ads.get((group["name"], ad.get("title", "")))
+            titles = [str(t) for t in ad.get("titles") or []]
+            texts = [str(t) for t in ad.get("texts") or []]
+            known = state.ads.get((group["name"], titles[0] if titles else ""))
             if known is None:
                 ads.append(
                     {
                         "AdGroupId": group_id,
-                        "TextAd": {
-                            "Title": ad["title"],
-                            # Title2 не отправляем: в ЕПК поля нет, Директ
-                            # отвечает предупреждением и либо выбрасывает его,
-                            # либо приклеивает к Title — и тогда заголовок
-                            # в аккаунте перестаёт совпадать с YAML.
-                            "Text": ad["text"],
+                        # На записи Titles и Texts — массивы строк, хотя get
+                        # отдаёт их объектами со Status.
+                        "ResponsiveAd": {
+                            "Titles": titles,
+                            "Texts": texts,
                             "Href": ad["href"],
-                            # Поле объявлено устаревшим, но остаётся обязательным.
-                            "Mobile": "NO",
                         },
                     }
                 )
@@ -634,14 +676,18 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
 
             # Правим только то, что действительно разошлось: любое обращение
             # к ads.update отправляет объявление на повторную модерацию.
-            text_ad = known.get("TextAd", {})
-            patch = {
-                api_field: ad[yaml_field]
-                for api_field, yaml_field in (("Text", "text"), ("Href", "href"))
-                if (text_ad.get(api_field) or "") != (ad.get(yaml_field) or "")
-            }
+            # Массив отправляется целиком — по одному элементу Директ его
+            # не дополняет.
+            responsive = known.get("ResponsiveAd", {})
+            patch: dict = {}
+            if _ad_strings(responsive, "Titles", "Title") != titles:
+                patch["Titles"] = titles
+            if _ad_strings(responsive, "Texts", "Text") != texts:
+                patch["Texts"] = texts
+            if (responsive.get("Href") or "") != (ad.get("href") or ""):
+                patch["Href"] = ad["href"]
             if patch:
-                edits.append({"Id": known["Id"], "TextAd": patch})
+                edits.append({"Id": known["Id"], "ResponsiveAd": patch})
 
     if keywords:
         print(f"  создано фраз: {len(api.add_keywords(keywords))}")

@@ -13,7 +13,11 @@ import requests
 
 from .direct import DirectError, load_token
 
-API_BASE = "https://api.direct.yandex.com/json/v5"
+# Версия v501, а не v5: только в ней объявления ЕПК отдаются как RESPONSIVE_AD
+# с массивами заголовков и текстов. В v5 те же объявления приходят как TEXT_AD
+# с одним Title — даже у объявления с тремя заголовками, — а Title2 всегда пуст.
+# Остальные сервисы (campaigns, adgroups, keywords) в v501 работают как в v5.
+API_BASE = "https://api.direct.yandex.com/json/v501"
 
 # Все денежные параметры Директ принимает целыми числами, умноженными на миллион.
 MONEY_MULTIPLIER = 1_000_000
@@ -155,7 +159,9 @@ class DirectApi:
             {
                 "SelectionCriteria": {"CampaignIds": campaign_ids},
                 "FieldNames": ["Id", "CampaignId", "AdGroupId", "State", "Status"],
-                "TextAdFieldNames": ["Title", "Title2", "Text", "Href"],
+                # На чтении элементы массивов — объекты {"Title": ..., "Status": ...},
+                # на записи те же массивы принимают просто строки.
+                "ResponsiveAdFieldNames": ["Titles", "Texts", "Href"],
             },
             "Ads",
         )
