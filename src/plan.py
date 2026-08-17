@@ -403,9 +403,25 @@ def _campaign_change(campaign: dict, known: dict | None) -> Change:
     return Change(UPDATE if diffs else UNCHANGED, "campaign", campaign["name"], diffs)
 
 
+def _negatives(group: dict) -> list[str]:
+    """Минус-фразы группы одним плоским списком.
+
+    Якорь YAML не умеет дополняться элементами — только подставляться целиком.
+    Поэтому группа с дополнительными минусами записывает их вложенным списком
+    (`- *negatives` плюс свои строки), а разворачивается он здесь.
+    """
+    flat: list[str] = []
+    for item in group.get("negative_keywords") or []:
+        if isinstance(item, list):
+            flat.extend(str(inner) for inner in item)
+        else:
+            flat.append(str(item))
+    return flat
+
+
 def _group_change(campaign: dict, group: dict, known: dict | None) -> Change:
     name = group["name"]
-    wanted_negatives = set(group.get("negative_keywords") or [])
+    wanted_negatives = set(_negatives(group))
 
     if known is None:
         return Change(
@@ -640,13 +656,33 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
                     "CampaignId": campaign_id,
                     "RegionIds": regions,
                     # Минус-фразы в ЕПК задаются на группе, а не на кампании.
-                    "NegativeKeywords": {"Items": list(g.get("negative_keywords") or [])},
+                    "NegativeKeywords": {"Items": _negatives(g)},
                 }
                 for g in new_groups
             ]
         )
         group_ids.update(zip((g["name"] for g in new_groups), created))
         print(f"  создано групп: {len(created)}")
+
+    group_edits = []
+    for g in spec["groups"]:
+        known = state.groups.get(g["name"])
+        if known is None:
+            continue
+        patch: dict = {}
+        wanted_negatives = set(_negatives(g))
+        current_negatives = set((known.get("NegativeKeywords") or {}).get("Items") or [])
+        if wanted_negatives - current_negatives:
+            # Директ заменяет Items целиком, «дописать» нельзя. Отправляется
+            # объединение с текущими, чтобы синхронизация не удаляла минусы,
+            # заведённые руками, — удаление должно быть отдельным действием.
+            patch["NegativeKeywords"] = {"Items": sorted(wanted_negatives | current_negatives)}
+        if set(campaign.get("regions") or []) != set(known.get("RegionIds") or []):
+            patch["RegionIds"] = regions
+        if patch:
+            group_edits.append({"Id": known["Id"], **patch})
+    if group_edits:
+        print(f"  обновлено групп: {len(api.update_ad_groups(group_edits))}")
 
     keywords, ads, edits = [], [], []
     for group in spec["groups"]:

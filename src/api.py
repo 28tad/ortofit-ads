@@ -198,6 +198,10 @@ class DirectApi:
         result = self.call("keywords", "add", {"Keywords": keywords})
         return _all_ids(result, "AddResults", "фраз")
 
+    def update_ad_groups(self, ad_groups: list[dict]) -> list[int]:
+        result = self.call("adgroups", "update", {"AdGroups": ad_groups})
+        return _all_ids(result, "UpdateResults", "групп")
+
     def update_campaign(self, campaign: dict) -> int:
         result = self.call("campaigns", "update", {"Campaigns": [campaign]})
         return _single_id(result, "UpdateResults", "кампании")
