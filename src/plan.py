@@ -728,7 +728,13 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
     if keywords:
         print(f"  создано фраз: {len(api.add_keywords(keywords))}")
     if ads:
-        print(f"  создано объявлений: {len(api.add_ads(ads))}")
+        created_ids = api.add_ads(ads)
+        print(f"  создано объявлений: {len(created_ids)}")
+        # Созданное через API объявление остаётся черновиком OFF/DRAFT и само
+        # на модерацию не уходит. Без явного moderate группа молча не даёт
+        # показов — эта ловушка уже стоила трёх «пустых» дней в августе.
+        api.moderate_ads(created_ids)
+        print("    отправлены на модерацию; после одобрения включатся сами")
     if edits:
         print(f"  обновлено объявлений: {len(api.update_ads(edits))}")
         print("    объявления ушли на повторную модерацию")
