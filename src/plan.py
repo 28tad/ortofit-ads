@@ -689,7 +689,17 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
         group_id = group_ids[group["name"]]
         for keyword in group.get("keywords") or []:
             if (group["name"], str(keyword).strip().lower()) not in state.keywords:
-                keywords.append({"Keyword": str(keyword), "AdGroupId": group_id})
+                # Bid обязателен здесь же: keywords.add без него создаёт фразу
+                # со ставкой 0 ₽, и группа молча не участвует ни в одном
+                # аукционе. Так четыре группы, созданные через API в августе,
+                # простояли без показов до ручной сверки ставок 25-го.
+                keywords.append(
+                    {
+                        "Keyword": str(keyword),
+                        "AdGroupId": group_id,
+                        "Bid": to_micros(group["max_cpc"]),
+                    }
+                )
 
         for ad in group.get("ads") or []:
             titles = [str(t) for t in ad.get("titles") or []]
@@ -727,6 +737,32 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
 
     if keywords:
         print(f"  создано фраз: {len(api.add_keywords(keywords))}")
+
+    if new_groups:
+        # Псевдофразу ---autotargeting Директ заводит в новой группе сам —
+        # тоже со ставкой 0 ₽. Проставляем ей ставку группы, иначе
+        # автотаргетинг существует, но не торгуется.
+        max_cpc_by_id = {group_ids[g["name"]]: to_micros(g["max_cpc"]) for g in new_groups}
+        autotargeting = [
+            k
+            for k in api.get_all(
+                "keywords",
+                {
+                    "SelectionCriteria": {"AdGroupIds": list(max_cpc_by_id)},
+                    "FieldNames": ["Id", "Keyword", "AdGroupId"],
+                },
+                "Keywords",
+            )
+            if k["Keyword"].strip().lower() == AUTOTARGETING_KEYWORD
+        ]
+        if autotargeting:
+            api.set_bids(
+                [
+                    {"KeywordId": k["Id"], "Bid": max_cpc_by_id[k["AdGroupId"]]}
+                    for k in autotargeting
+                ]
+            )
+            print(f"  ставка автотаргетинга выставлена в {len(autotargeting)} группах")
     if ads:
         created_ids = api.add_ads(ads)
         print(f"  создано объявлений: {len(created_ids)}")

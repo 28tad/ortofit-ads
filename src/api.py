@@ -210,6 +210,20 @@ class DirectApi:
         result = self.call("ads", "update", {"Ads": ads})
         return _all_ids(result, "UpdateResults", "объявлений")
 
+    def set_bids(self, bids: list[dict]) -> int:
+        """Ставки фраз: [{"KeywordId": ..., "Bid": micros}]. Возвращает число удач."""
+        result = self.call("bids", "set", {"Bids": bids})
+        problems = []
+        for index, item in enumerate(result.get("SetResults", [])):
+            for error in item.get("Errors", []):
+                problems.append(
+                    f"  #{index + 1}: код {error.get('Code', '?')} "
+                    f"{error.get('Message', '')} {error.get('Details', '')}".rstrip()
+                )
+        if problems:
+            raise ApiError("Директ отклонил часть ставок:\n" + "\n".join(problems))
+        return len(bids)
+
     def moderate_ads(self, ad_ids: list[int]) -> list[int]:
         """Отправляет черновики на модерацию. Принимает только статус DRAFT.
 

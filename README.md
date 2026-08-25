@@ -252,6 +252,8 @@ OFF/DRAFT  ──ads.moderate──▶  OFF/MODERATION  ──сам Дирек�
 | `LocationOfPresenceName` в `CUSTOM_REPORT` | числится недоступным | **работает** |
 | `Title2` в ЕПК | не оговорено | поля нет: склеивается с `Title` или выбрасывается |
 | Заголовки/тексты объявления ЕПК | — | массивы `Titles`/`Texts` в `ResponsiveAd`, только v501 |
+| `keywords.add` без `Bid` | не оговорено | фраза создаётся со ставкой **0 ₽** и молча не торгуется; `---autotargeting` новой группы — тоже 0 ₽ |
+| Настройки ЕПК в `campaigns.get` | — | читаются через `UnifiedCampaignFieldNames: [Settings]` в v501, хотя `Type` кампании — `TEXT_CAMPAIGN` |
 | `Type` объявления в v501 | не оговорено | зависит от запрошенных полей: `TEXT_AD` без `ResponsiveAdFieldNames`, `RESPONSIVE_AD` с ними |
 | `Titles`/`Texts` на чтении и записи | не оговорено | get отдаёт объекты со `Status`, add/update принимают строки |
 | Статус после `ads.add` | не оговорено | `DRAFT`, нужен явный `ads.moderate` |
