@@ -294,6 +294,17 @@ def _check_keyword(errors: list[str], group: str, keyword: str) -> None:
 # в списке «есть в аккаунте, но нет в файле».
 AUTOTARGETING_KEYWORD = "---autotargeting"
 
+# Категории автотаргетинга: флаг YAML -> категория API. API v5 знает пять
+# категорий; тумблеры narrow_queries, own_brand_queries и no_brand_queries
+# существуют только в интерфейсе, через API они не читаются и не пишутся.
+AUTOTARGETING_CATEGORIES = (
+    ("target_queries", "EXACT"),
+    ("alternative_queries", "ALTERNATIVE"),
+    ("competitor_brand_queries", "COMPETITOR"),
+    ("broad_queries", "BROADER"),
+    ("accessory_queries", "ACCESSORY"),
+)
+
 
 def read_state(api: DirectApi, campaign: dict) -> AccountState:
     """Находит кампанию по id, а при его отсутствии — по имени.
@@ -763,6 +774,27 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
                 ]
             )
             print(f"  ставка автотаргетинга выставлена в {len(autotargeting)} группах")
+
+            # Директ включает новой группе ВСЕ категории автотаргетинга —
+            # в отличие от интерфейса, где выбор за человеком. Без правки
+            # группа скупает широкие и сопутствующие запросы: 25 августа это
+            # дало 199 показов за день при CTR 2,5%. На записи категории —
+            # массив, хотя get отдаёт их обёрнутыми в Items.
+            flags_by_id = {group_ids[g["name"]]: g.get("autotargeting") for g in new_groups}
+            categories = [
+                {
+                    "Id": k["Id"],
+                    "AutotargetingCategories": [
+                        {"Category": category, "Value": "YES" if flags.get(flag) else "NO"}
+                        for flag, category in AUTOTARGETING_CATEGORIES
+                    ],
+                }
+                for k in autotargeting
+                if (flags := flags_by_id.get(k["AdGroupId"])) is not None
+            ]
+            if categories:
+                api.update_keywords(categories)
+                print(f"  категории автотаргетинга приведены к YAML в {len(categories)} группах")
     if ads:
         created_ids = api.add_ads(ads)
         print(f"  создано объявлений: {len(created_ids)}")
