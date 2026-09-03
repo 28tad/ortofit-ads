@@ -411,6 +411,13 @@ def _campaign_change(campaign: dict, known: dict | None) -> Change:
     if (actual := (known.get("Name") or "").strip()) != campaign["name"].strip():
         diffs.append(f"имя: «{actual}» -> «{campaign['name']}»")
 
+    # Кампанийные минус-фразы в ЕПК существуют — вопреки августовскому
+    # пониманию, campaigns.update их принимает (проверено 3 сентября).
+    wanted_negatives = set(campaign.get("negative_keywords") or [])
+    current_negatives = set((known.get("NegativeKeywords") or {}).get("Items") or [])
+    if added := wanted_negatives - current_negatives:
+        diffs.append(f"минус-фразы: +{len(added)} ({', '.join(sorted(added)[:5])}...)")
+
     return Change(UPDATE if diffs else UNCHANGED, "campaign", campaign["name"], diffs)
 
 
@@ -648,12 +655,22 @@ def apply_plan(api: DirectApi, spec: dict, state: AccountState, changes: list[Ch
         print(f"  создана кампания {campaign_id}")
     else:
         campaign_id = state.campaign["Id"]
-        # Из всех полей кампании через API правится только имя: бюджет,
-        # стратегия, площадки и цели в ЕПК задаются в интерфейсе, и
-        # campaigns.get их даже не отдаёт — сверять и слать нечего.
+        # Через API правятся имя и кампанийные минус-фразы. Бюджет, стратегия,
+        # площадки и цели ЕПК задаются в интерфейсе — сверять и слать нечего.
+        patch: dict = {}
         if (state.campaign.get("Name") or "") != campaign["name"]:
-            api.update_campaign({"Id": campaign_id, "Name": campaign["name"]})
-            print(f"  кампания {campaign_id} переименована -> «{campaign['name']}»")
+            patch["Name"] = campaign["name"]
+        wanted_negatives = set(campaign.get("negative_keywords") or [])
+        current_negatives = set(
+            (state.campaign.get("NegativeKeywords") or {}).get("Items") or []
+        )
+        if wanted_negatives - current_negatives:
+            # Items заменяются целиком; объединение — чтобы не удалять
+            # заведённое руками, удаление только отдельным действием.
+            patch["NegativeKeywords"] = {"Items": sorted(wanted_negatives | current_negatives)}
+        if patch:
+            api.update_campaign({"Id": campaign_id, **patch})
+            print(f"  кампания {campaign_id} обновлена: {', '.join(patch)}")
         else:
             print(f"  кампания {campaign_id} без изменений")
 
